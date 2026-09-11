@@ -662,6 +662,7 @@ onUnmounted(() => {
     </main>
 
     <footer class="app-footer">
+      <span class="author-credit">作者：ZGMFX01A</span>
       <a class="repository-link" href="#" @click.prevent="openPublicRepository">GitHub 项目主页 ↗</a>
     </footer>
   </div>
@@ -676,7 +677,8 @@ body,
   padding: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
-  overflow: hidden !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
   background-color: #0b0f19 !important;
   border: none !important;
   outline: none !important;
@@ -703,7 +705,7 @@ body,
   color: #f1f5f9;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
   user-select: none;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* 顶部导航条 */
@@ -853,18 +855,32 @@ body,
   gap: 20px;
   padding: 20px;
   flex: 1;
-  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .app-footer {
+  position: fixed;
+  right: 20px;
+  bottom: 10px;
+  z-index: 30;
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  flex: 0 0 30px;
-  padding: 0 24px 8px;
+  gap: 12px;
+  padding: 0;
+  pointer-events: none;
+}
+
+.author-credit {
+  color: #64748b;
+  font-size: 11px;
 }
 
 .repository-link {
+  pointer-events: auto;
   color: #64748b;
   font-size: 11px;
   text-decoration: none;
@@ -1326,5 +1342,30 @@ body,
 .btn-xs {
   padding: 3px 8px;
   font-size: 11px;
+}
+
+@media (max-height: 760px) {
+  .navbar {
+    padding: 9px 18px;
+  }
+
+  .main-content {
+    padding: 14px 18px 42px;
+  }
+
+  .canvas-wrapper {
+    min-height: 320px;
+  }
+
+  .crop-controls,
+  .action-card,
+  .param-card,
+  .monitor-card {
+    padding: 12px;
+  }
+
+  .control-panel {
+    gap: 12px;
+  }
 }
 </style>
