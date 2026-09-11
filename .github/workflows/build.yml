@@ -93,120 +93,120 @@ jobs:
           Compress-Archive -Path (Join-Path $stagingDir "*") -DestinationPath $payloadZip -CompressionLevel Fastest
 
           $csSource = @'
-using System;
-using System.Diagnostics;
-using System.IO;
-using System.IO.Compression;
-using System.Reflection;
-using System.Text;
+          using System;
+          using System.Diagnostics;
+          using System.IO;
+          using System.IO.Compression;
+          using System.Reflection;
+          using System.Text;
 
-class Program {
-    private const string PayloadVersion = "__PAYLOAD_VERSION__";
+          class Program {
+          private const string PayloadVersion = "__PAYLOAD_VERSION__";
 
-    private static string QuoteArgument(string value) {
-        if (value == null || value.Length == 0) return "\"\"";
-        bool needsQuotes = false;
-        for (int i = 0; i < value.Length; i++) {
-            if (char.IsWhiteSpace(value[i]) || value[i] == '\"') {
-                needsQuotes = true;
-                break;
-            }
-        }
-        if (!needsQuotes) return value;
+          private static string QuoteArgument(string value) {
+          if (value == null || value.Length == 0) return "\"\"";
+          bool needsQuotes = false;
+          for (int i = 0; i < value.Length; i++) {
+          if (char.IsWhiteSpace(value[i]) || value[i] == '\"') {
+          needsQuotes = true;
+          break;
+          }
+          }
+          if (!needsQuotes) return value;
 
-        StringBuilder result = new StringBuilder();
-        result.Append('\"');
-        int backslashes = 0;
-        for (int i = 0; i < value.Length; i++) {
-            char current = value[i];
-            if (current == '\\') {
-                backslashes++;
-            } else if (current == '\"') {
-                result.Append('\\', backslashes * 2 + 1);
-                result.Append('\"');
-                backslashes = 0;
-            } else {
-                result.Append('\\', backslashes);
-                result.Append(current);
-                backslashes = 0;
-            }
-        }
-        result.Append('\\', backslashes * 2);
-        result.Append('\"');
-        return result.ToString();
-    }
+          StringBuilder result = new StringBuilder();
+          result.Append('\"');
+          int backslashes = 0;
+          for (int i = 0; i < value.Length; i++) {
+          char current = value[i];
+          if (current == '\\') {
+          backslashes++;
+          } else if (current == '\"') {
+          result.Append('\\', backslashes * 2 + 1);
+          result.Append('\"');
+          backslashes = 0;
+          } else {
+          result.Append('\\', backslashes);
+          result.Append(current);
+          backslashes = 0;
+          }
+          }
+          result.Append('\\', backslashes * 2);
+          result.Append('\"');
+          return result.ToString();
+          }
 
-    private static bool IsInside(string root, string path) {
-        string normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        string normalizedPath = Path.GetFullPath(path);
-        return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
-    }
+          private static bool IsInside(string root, string path) {
+          string normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+          string normalizedPath = Path.GetFullPath(path);
+          return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+          }
 
-    static void Main(string[] args) {
-        string targetDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "MythCoolLite", "App"
-        );
-        string exePath = Path.Combine(targetDir, "MythCoolLite.exe");
-        string ffmpegPath = Path.Combine(targetDir, "bin", "ffmpeg", "ffmpeg.exe");
-        string versionPath = Path.Combine(targetDir, "payload.version");
+          static void Main(string[] args) {
+          string targetDir = Path.Combine(
+          Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+          "MythCoolLite", "App"
+          );
+          string exePath = Path.Combine(targetDir, "MythCoolLite.exe");
+          string ffmpegPath = Path.Combine(targetDir, "bin", "ffmpeg", "ffmpeg.exe");
+          string versionPath = Path.Combine(targetDir, "payload.version");
 
-        bool needExtract = !File.Exists(exePath) || !File.Exists(ffmpegPath);
-        if (!needExtract) {
-            try {
-                needExtract = File.ReadAllText(versionPath) != PayloadVersion;
-            } catch {
-                needExtract = true;
-            }
-        }
+          bool needExtract = !File.Exists(exePath) || !File.Exists(ffmpegPath);
+          if (!needExtract) {
+          try {
+          needExtract = File.ReadAllText(versionPath) != PayloadVersion;
+          } catch {
+          needExtract = true;
+          }
+          }
 
-        if (needExtract) {
-            try {
-                Directory.CreateDirectory(targetDir);
-                using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.zip")) {
-                    if (stream == null) throw new InvalidOperationException("Embedded payload is missing.");
-                    using (ZipArchive archive = new ZipArchive(stream)) {
-                        foreach (ZipArchiveEntry entry in archive.Entries) {
-                            string destination = Path.Combine(targetDir, entry.FullName);
-                            if (!IsInside(targetDir, destination)) continue;
-                            if (string.IsNullOrEmpty(entry.Name)) {
-                                Directory.CreateDirectory(destination);
-                            } else {
-                                string parent = Path.GetDirectoryName(destination);
-                                if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
-                                entry.ExtractToFile(destination, true);
-                            }
-                        }
-                    }
-                }
-            } catch {
-                return;
-            }
-        }
+          if (needExtract) {
+          try {
+          Directory.CreateDirectory(targetDir);
+          using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.zip")) {
+          if (stream == null) throw new InvalidOperationException("Embedded payload is missing.");
+          using (ZipArchive archive = new ZipArchive(stream)) {
+          foreach (ZipArchiveEntry entry in archive.Entries) {
+          string destination = Path.Combine(targetDir, entry.FullName);
+          if (!IsInside(targetDir, destination)) continue;
+          if (string.IsNullOrEmpty(entry.Name)) {
+          Directory.CreateDirectory(destination);
+          } else {
+          string parent = Path.GetDirectoryName(destination);
+          if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+          entry.ExtractToFile(destination, true);
+          }
+          }
+          }
+          }
+          } catch {
+          return;
+          }
+          }
 
-        try {
-            ProcessStartInfo startInfo = new ProcessStartInfo {
-                FileName = exePath,
-                WorkingDirectory = targetDir,
-                UseShellExecute = true
-            };
+          try {
+          ProcessStartInfo startInfo = new ProcessStartInfo {
+          FileName = exePath,
+          WorkingDirectory = targetDir,
+          UseShellExecute = true
+          };
 
-            if (args != null && args.Length > 0) {
-                StringBuilder commandLine = new StringBuilder();
-                for (int i = 0; i < args.Length; i++) {
-                    if (i > 0) commandLine.Append(' ');
-                    commandLine.Append(QuoteArgument(args[i]));
-                }
-                startInfo.Arguments = commandLine.ToString();
-            }
+          if (args != null && args.Length > 0) {
+          StringBuilder commandLine = new StringBuilder();
+          for (int i = 0; i < args.Length; i++) {
+          if (i > 0) commandLine.Append(' ');
+          commandLine.Append(QuoteArgument(args[i]));
+          }
+          startInfo.Arguments = commandLine.ToString();
+          }
 
-            Process.Start(startInfo);
-        } catch {
-            // Windows reports launch failures to the user.
-        }
-    }
-}
-'@
+          Process.Start(startInfo);
+          } catch {
+          // Windows reports launch failures to the user.
+          }
+          }
+          }
+          '@
           $csSource = $csSource.Replace("__PAYLOAD_VERSION__", $payloadVersion)
           Set-Content -LiteralPath $launcherSource -Value $csSource -Encoding utf8
 
