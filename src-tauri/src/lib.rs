@@ -22,6 +22,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             stream_manager: Mutex::new(StreamManager::new()),
+            start_minimized,
         })
         .invoke_handler(tauri::generate_handler![
             commands::check_device,
@@ -30,6 +31,7 @@ pub fn run() {
             commands::stop_stream,
             commands::get_autostart,
             commands::set_autostart,
+            commands::get_start_minimized,
             commands::inspect_media,
             commands::get_device_specs,
         ])
@@ -114,6 +116,16 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("运行 Myth.Cool Lite Tauri 应用程序发生错误");
+        .build(tauri::generate_context!())
+        .expect("构建 Myth.Cool Lite Tauri 应用程序发生错误")
+        .run(|app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                let state: tauri::State<AppState> = app.state();
+                let mut mgr = state.stream_manager.lock().unwrap();
+                mgr.stop();
+            }
+        });
 }

@@ -151,6 +151,7 @@ impl StreamManager {
         st.is_running = false;
         st.device_online = false;
         st.current_fps = 0.0;
+        st.error_message = None;
     }
 
     /// 启动推流任务
@@ -419,6 +420,9 @@ fn run_stream_worker(
     let geom = match device.init_screen() {
         Ok(g) => g,
         Err(e) => {
+            if stop_flag.load(Ordering::SeqCst) {
+                return;
+            }
             let mut st = status_arc.lock().unwrap();
             st.is_running = false;
             st.device_online = false;
@@ -452,6 +456,9 @@ fn run_stream_worker(
     {
         Ok(stdout) => stdout,
         Err(e) => {
+            if stop_flag.load(Ordering::SeqCst) {
+                return;
+            }
             let mut st = status_arc.lock().unwrap();
             st.is_running = false;
             st.error_message = Some(e);
@@ -494,6 +501,9 @@ fn run_stream_worker(
         } else {
             // 输入流结束（例如静态单张图片、或短动图非 loop 模式）
             if !has_frame {
+                if stop_flag.load(Ordering::SeqCst) {
+                    break;
+                }
                 let mut st = status_arc.lock().unwrap();
                 st.is_running = false;
                 st.error_message = Some("未解码到有效画面（文件损坏或格式不支持）".to_string());
@@ -513,6 +523,9 @@ fn run_stream_worker(
                 {
                     Ok(new_stdout) => stdout = new_stdout,
                     Err(e) => {
+                        if stop_flag.load(Ordering::SeqCst) {
+                            break;
+                        }
                         let mut st = status_arc.lock().unwrap();
                         st.is_running = false;
                         st.error_message = Some(format!("循环重启 ffmpeg 失败: {}", e));
@@ -525,6 +538,10 @@ fn run_stream_worker(
         // 推送最后一帧有效数据
         if has_frame {
             if let Err(e) = device.push_frame(&last_frame, target_w, target_h) {
+                if stop_flag.load(Ordering::SeqCst) {
+                    kill_ffmpeg_child(&child_handle);
+                    break;
+                }
                 let mut st = status_arc.lock().unwrap();
                 st.is_running = false;
                 st.error_message = Some(format!("推流中断: {}", e));

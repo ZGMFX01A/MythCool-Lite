@@ -52,6 +52,8 @@ const canvasRef = ref<HTMLCanvasElement | null>(null);
 let previewImage: HTMLImageElement | null = null;
 let pollTimer: number | null = null;
 let unlistenDrop: (() => void) | null = null;
+let autoStartPending = false;
+let autoStartInProgress = false;
 
 // 拖拽手柄状态
 type DragHandle = "none" | "inside" | "nw" | "ne" | "sw" | "se" | "n" | "s" | "w" | "e";
@@ -83,6 +85,10 @@ async function refreshStatus() {
       if (changed && lockAspect.value && isMediaLoaded.value) {
         resetCrop();
       }
+    }
+
+    if (autoStartPending) {
+      await tryAutoStart();
     }
   } catch (e) {
     console.error("查询状态失败:", e);
@@ -144,19 +150,23 @@ async function loadMedia(filePath: string) {
     previewUrl.value = info.preview_base64;
 
     const img = new Image();
-    img.onload = () => {
-      previewImage = img;
-      isMediaLoaded.value = true;
-      isLoadingMedia.value = false;
-      try {
-        localStorage.setItem(selectedMediaStorageKey, filePath);
-      } catch {
-        // 本地存储不可用时不影响当前会话使用。
-      }
-      resetCrop();
-      drawCanvas();
-    };
-    img.src = info.preview_base64;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => {
+        previewImage = img;
+        isMediaLoaded.value = true;
+        isLoadingMedia.value = false;
+        try {
+          localStorage.setItem(selectedMediaStorageKey, filePath);
+        } catch {
+          // 本地存储不可用时不影响当前会话使用。
+        }
+        resetCrop();
+        drawCanvas();
+        resolve();
+      };
+      img.onerror = () => reject(new Error("预览图加载失败"));
+      img.src = info.preview_base64;
+    });
   } catch (e: any) {
     selectedFile.value = "";
     isLoadingMedia.value = false;
@@ -384,10 +394,12 @@ function onMouseUp() {
 }
 
 // 开始推流 (动态携带从设备获取的物理分辨率)
-async function startPush() {
+async function startPush(showAlert = true): Promise<boolean> {
   if (!selectedFile.value) {
-    alert("请先选择一个媒体文件！");
-    return;
+    if (showAlert) {
+      alert("请先选择一个媒体文件！");
+    }
+    return false;
   }
   errorMessage.value = "";
 
@@ -408,9 +420,30 @@ async function startPush() {
       },
     });
     isStreaming.value = true;
+    return true;
   } catch (e: any) {
     errorMessage.value = "推流启动失败: " + e;
+    return false;
   }
+}
+
+async function tryAutoStart() {
+  if (
+    !autoStartPending ||
+    autoStartInProgress ||
+    !isMediaLoaded.value ||
+    isStreaming.value ||
+    !deviceOnline.value
+  ) {
+    return;
+  }
+
+  autoStartInProgress = true;
+  const started = await startPush(false);
+  if (started) {
+    autoStartPending = false;
+  }
+  autoStartInProgress = false;
 }
 
 // 停止推流
@@ -434,8 +467,14 @@ watch(scaleMode, () => {
 });
 
 onMounted(async () => {
+  let startMinimized = false;
   try {
     isAutostart.value = await invoke("get_autostart");
+  } catch (e) {
+    console.error(e);
+  }
+  try {
+    startMinimized = await invoke("get_start_minimized");
   } catch (e) {
     console.error(e);
   }
@@ -443,11 +482,12 @@ onMounted(async () => {
     const savedMediaPath = localStorage.getItem(selectedMediaStorageKey);
     if (savedMediaPath) {
       await loadMedia(savedMediaPath);
+      autoStartPending = startMinimized && isAutostart.value && isMediaLoaded.value;
     }
   } catch {
     // 恢复失败时保持空白状态，用户仍可重新导入媒体。
   }
-  refreshStatus();
+  await refreshStatus();
   pollTimer = window.setInterval(refreshStatus, 5000);
 
   unlistenDrop = await getCurrentWindow().onDragDropEvent((event) => {
@@ -592,7 +632,7 @@ onUnmounted(() => {
             v-if="!isStreaming"
             class="btn btn-primary btn-large"
             :disabled="!isMediaLoaded"
-            @click="startPush"
+            @click="() => void startPush()"
           >
             🚀 开始推流至副屏
           </button>

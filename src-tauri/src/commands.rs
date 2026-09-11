@@ -10,6 +10,7 @@ use tauri::State;
 
 pub struct AppState {
     pub stream_manager: Mutex<StreamManager>,
+    pub start_minimized: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -88,6 +89,11 @@ pub fn get_autostart() -> Result<bool, String> {
 #[tauri::command]
 pub fn set_autostart(enabled: bool) -> Result<(), String> {
     autostart::set_autostart(enabled)
+}
+
+#[tauri::command]
+pub fn get_start_minimized(state: State<'_, AppState>) -> bool {
+    state.start_minimized
 }
 
 /// 提取媒体文件的尺寸和首帧 Base64 预览图
