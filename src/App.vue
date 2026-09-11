@@ -660,7 +660,7 @@ onUnmounted(() => {
         </div>
 
         <div class="panel-footer">
-          <span class="author-credit">作者：ZGMFX01A</span>
+          <span class="author-credit">ZGMFX01A</span>
           <a class="repository-link" href="#" @click.prevent="openPublicRepository">GitHub 项目主页 ↗</a>
         </div>
       </aside>
