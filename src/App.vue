@@ -658,13 +658,13 @@ onUnmounted(() => {
             ⚠️ {{ errorMessage }}
           </div>
         </div>
+
+        <div class="panel-footer">
+          <span class="author-credit">作者：ZGMFX01A</span>
+          <a class="repository-link" href="#" @click.prevent="openPublicRepository">GitHub 项目主页 ↗</a>
+        </div>
       </aside>
     </main>
-
-    <footer class="app-footer">
-      <span class="author-credit">作者：ZGMFX01A</span>
-      <a class="repository-link" href="#" @click.prevent="openPublicRepository">GitHub 项目主页 ↗</a>
-    </footer>
   </div>
 </template>
 
@@ -861,17 +861,14 @@ body,
   overflow-y: auto;
 }
 
-.app-footer {
-  position: fixed;
-  right: 20px;
-  bottom: 10px;
-  z-index: 30;
+.panel-footer {
+  margin-top: auto;
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 12px;
-  padding: 0;
-  pointer-events: none;
+  min-height: 36px;
+  padding: 4px 2px 0;
 }
 
 .author-credit {
@@ -880,16 +877,26 @@ body,
 }
 
 .repository-link {
-  pointer-events: auto;
-  color: #64748b;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  border-radius: 7px;
+  background: rgba(14, 116, 144, 0.2);
+  color: #7dd3fc;
+  font-size: 12px;
+  font-weight: 600;
   text-decoration: none;
-  transition: color 0.15s ease;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.08), 0 4px 14px rgba(8, 47, 73, 0.24);
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .repository-link:hover {
-  color: #7dd3fc;
-  text-decoration: underline;
+  border-color: #7dd3fc;
+  background: rgba(14, 165, 233, 0.34);
+  color: #e0f2fe;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.14), 0 5px 18px rgba(8, 47, 73, 0.36);
 }
 
 /* 裁切工作台 */
