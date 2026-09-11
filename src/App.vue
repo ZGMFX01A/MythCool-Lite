@@ -18,6 +18,7 @@ const currentFps = ref(0);
 const errorMessage = ref("");
 const isAutostart = ref(false);
 const publicRepositoryUrl = PUBLIC_REPOSITORY_URL;
+const selectedMediaStorageKey = "mythcool-lite.selected-media.v1";
 
 // 媒体与裁切参数
 const selectedFile = ref<string>("");
@@ -147,6 +148,11 @@ async function loadMedia(filePath: string) {
       previewImage = img;
       isMediaLoaded.value = true;
       isLoadingMedia.value = false;
+      try {
+        localStorage.setItem(selectedMediaStorageKey, filePath);
+      } catch {
+        // 本地存储不可用时不影响当前会话使用。
+      }
       resetCrop();
       drawCanvas();
     };
@@ -154,6 +160,11 @@ async function loadMedia(filePath: string) {
   } catch (e: any) {
     selectedFile.value = "";
     isLoadingMedia.value = false;
+    try {
+      localStorage.removeItem(selectedMediaStorageKey);
+    } catch {
+      // 本地存储不可用时忽略清理失败。
+    }
     errorMessage.value = "提取媒体预览失败: " + e;
   }
 }
@@ -427,6 +438,14 @@ onMounted(async () => {
     isAutostart.value = await invoke("get_autostart");
   } catch (e) {
     console.error(e);
+  }
+  try {
+    const savedMediaPath = localStorage.getItem(selectedMediaStorageKey);
+    if (savedMediaPath) {
+      await loadMedia(savedMediaPath);
+    }
+  } catch {
+    // 恢复失败时保持空白状态，用户仍可重新导入媒体。
   }
   refreshStatus();
   pollTimer = window.setInterval(refreshStatus, 5000);
