@@ -34,17 +34,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: desktop/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install frontend dependencies
-        working-directory: desktop
         run: npm ci
 
       - name: Build application
-        working-directory: desktop
         run: npm run tauri build -- --no-bundle
 
       - name: Download FFmpeg runtime
@@ -72,8 +70,8 @@ jobs:
           $payloadZip = Join-Path $workRoot "payload.zip"
           $launcherSource = Join-Path $workRoot "launcher.cs"
           $outputDir = Join-Path $env:GITHUB_WORKSPACE "artifact"
-          $releaseExe = Join-Path $env:GITHUB_WORKSPACE "desktop\src-tauri\target\release\desktop.exe"
-          $iconPath = Join-Path $env:GITHUB_WORKSPACE "desktop\src-tauri\icons\icon.ico"
+          $releaseExe = Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\release\desktop.exe"
+          $iconPath = Join-Path $env:GITHUB_WORKSPACE "src-tauri\icons\icon.ico"
 
           if (-not (Test-Path -LiteralPath $releaseExe)) {
             throw "Release executable was not found: $releaseExe"
