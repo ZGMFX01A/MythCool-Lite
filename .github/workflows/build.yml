@@ -1,0 +1,255 @@
+name: Build MythCool Lite
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
+    steps:
+      - name: Checkout public repository
+        uses: actions/checkout@v4
+
+      - name: Configure private dependency access
+        shell: pwsh
+        env:
+          CORE_READ_TOKEN: ${{ secrets.CORE_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CORE_READ_TOKEN)) {
+            throw "Missing repository secret CORE_READ_TOKEN."
+          }
+          git config --global url."https://x-access-token:$env:CORE_READ_TOKEN@github.com/".insteadOf "https://github.com/"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build application
+        working-directory: desktop
+        run: npm run tauri build -- --no-bundle
+
+      - name: Download FFmpeg runtime
+        shell: pwsh
+        run: |
+          $downloadRoot = Join-Path $env:RUNNER_TEMP "MythCoolLite-ffmpeg"
+          $archivePath = Join-Path $downloadRoot "ffmpeg.zip"
+          $extractPath = Join-Path $downloadRoot "extracted"
+          New-Item -ItemType Directory -Path $downloadRoot -Force | Out-Null
+          Invoke-WebRequest `
+            -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" `
+            -OutFile $archivePath
+          Expand-Archive -LiteralPath $archivePath -DestinationPath $extractPath -Force
+          $ffmpeg = Get-ChildItem -Path $extractPath -Filter "ffmpeg.exe" -Recurse | Select-Object -First 1
+          if ($null -eq $ffmpeg) {
+            throw "FFmpeg executable was not found in the downloaded archive."
+          }
+          "MYTHCOOL_FFMPEG_BIN=$($ffmpeg.Directory.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Create standalone executable
+        shell: pwsh
+        run: |
+          $workRoot = Join-Path $env:RUNNER_TEMP "MythCoolLite-package"
+          $stagingDir = Join-Path $workRoot "payload"
+          $payloadZip = Join-Path $workRoot "payload.zip"
+          $launcherSource = Join-Path $workRoot "launcher.cs"
+          $outputDir = Join-Path $env:GITHUB_WORKSPACE "artifact"
+          $releaseExe = Join-Path $env:GITHUB_WORKSPACE "desktop\src-tauri\target\release\desktop.exe"
+          $iconPath = Join-Path $env:GITHUB_WORKSPACE "desktop\src-tauri\icons\icon.ico"
+
+          if (-not (Test-Path -LiteralPath $releaseExe)) {
+            throw "Release executable was not found: $releaseExe"
+          }
+          if (-not (Test-Path -LiteralPath $env:MYTHCOOL_FFMPEG_BIN)) {
+            throw "FFmpeg runtime directory was not found."
+          }
+
+          New-Item -ItemType Directory -Path (Join-Path $stagingDir "bin\ffmpeg") -Force | Out-Null
+          New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+          Copy-Item -LiteralPath $releaseExe -Destination (Join-Path $stagingDir "MythCoolLite.exe") -Force
+          Copy-Item -Path (Join-Path $env:MYTHCOOL_FFMPEG_BIN "*") `
+            -Destination (Join-Path $stagingDir "bin\ffmpeg") -Recurse -Force
+
+          $payloadVersion = $env:GITHUB_SHA
+          Set-Content -LiteralPath (Join-Path $stagingDir "payload.version") -Value $payloadVersion -Encoding ascii
+          Compress-Archive -Path (Join-Path $stagingDir "*") -DestinationPath $payloadZip -CompressionLevel Fastest
+
+          $csSource = @'
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Reflection;
+using System.Text;
+
+class Program {
+    private const string PayloadVersion = "__PAYLOAD_VERSION__";
+
+    private static string QuoteArgument(string value) {
+        if (value == null || value.Length == 0) return "\"\"";
+        bool needsQuotes = false;
+        for (int i = 0; i < value.Length; i++) {
+            if (char.IsWhiteSpace(value[i]) || value[i] == '\"') {
+                needsQuotes = true;
+                break;
+            }
+        }
+        if (!needsQuotes) return value;
+
+        StringBuilder result = new StringBuilder();
+        result.Append('\"');
+        int backslashes = 0;
+        for (int i = 0; i < value.Length; i++) {
+            char current = value[i];
+            if (current == '\\') {
+                backslashes++;
+            } else if (current == '\"') {
+                result.Append('\\', backslashes * 2 + 1);
+                result.Append('\"');
+                backslashes = 0;
+            } else {
+                result.Append('\\', backslashes);
+                result.Append(current);
+                backslashes = 0;
+            }
+        }
+        result.Append('\\', backslashes * 2);
+        result.Append('\"');
+        return result.ToString();
+    }
+
+    private static bool IsInside(string root, string path) {
+        string normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        string normalizedPath = Path.GetFullPath(path);
+        return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    static void Main(string[] args) {
+        string targetDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "MythCoolLite", "App"
+        );
+        string exePath = Path.Combine(targetDir, "MythCoolLite.exe");
+        string ffmpegPath = Path.Combine(targetDir, "bin", "ffmpeg", "ffmpeg.exe");
+        string versionPath = Path.Combine(targetDir, "payload.version");
+
+        bool needExtract = !File.Exists(exePath) || !File.Exists(ffmpegPath);
+        if (!needExtract) {
+            try {
+                needExtract = File.ReadAllText(versionPath) != PayloadVersion;
+            } catch {
+                needExtract = true;
+            }
+        }
+
+        if (needExtract) {
+            try {
+                Directory.CreateDirectory(targetDir);
+                using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.zip")) {
+                    if (stream == null) throw new InvalidOperationException("Embedded payload is missing.");
+                    using (ZipArchive archive = new ZipArchive(stream)) {
+                        foreach (ZipArchiveEntry entry in archive.Entries) {
+                            string destination = Path.Combine(targetDir, entry.FullName);
+                            if (!IsInside(targetDir, destination)) continue;
+                            if (string.IsNullOrEmpty(entry.Name)) {
+                                Directory.CreateDirectory(destination);
+                            } else {
+                                string parent = Path.GetDirectoryName(destination);
+                                if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+                                entry.ExtractToFile(destination, true);
+                            }
+                        }
+                    }
+                }
+            } catch {
+                return;
+            }
+        }
+
+        try {
+            ProcessStartInfo startInfo = new ProcessStartInfo {
+                FileName = exePath,
+                WorkingDirectory = targetDir,
+                UseShellExecute = true
+            };
+
+            if (args != null && args.Length > 0) {
+                StringBuilder commandLine = new StringBuilder();
+                for (int i = 0; i < args.Length; i++) {
+                    if (i > 0) commandLine.Append(' ');
+                    commandLine.Append(QuoteArgument(args[i]));
+                }
+                startInfo.Arguments = commandLine.ToString();
+            }
+
+            Process.Start(startInfo);
+        } catch {
+            // Windows reports launch failures to the user.
+        }
+    }
+}
+'@
+          $csSource = $csSource.Replace("__PAYLOAD_VERSION__", $payloadVersion)
+          Set-Content -LiteralPath $launcherSource -Value $csSource -Encoding utf8
+
+          $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path -LiteralPath $csc)) {
+            throw "C# compiler was not found: $csc"
+          }
+
+          $singleExe = Join-Path $outputDir "MythCoolLite.exe"
+          $cscArgs = @(
+            "/target:winexe",
+            "/platform:anycpu",
+            "/optimize+",
+            "/r:System.dll",
+            "/r:System.IO.Compression.dll",
+            "/r:System.IO.Compression.FileSystem.dll",
+            ("/resource:" + $payloadZip + ",payload.zip"),
+            ("/out:" + $singleExe),
+            $launcherSource
+          )
+          if (Test-Path -LiteralPath $iconPath) {
+            $cscArgs += ("/win32icon:" + $iconPath)
+          }
+
+          & $csc @cscArgs
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $singleExe)) {
+            throw "Standalone executable creation failed."
+          }
+
+      - name: Upload standalone executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: MythCoolLite
+          path: artifact/MythCoolLite.exe
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            "artifact\MythCoolLite.exe" `
+            --title "MythCool Lite ${{ github.ref_name }}" `
+            --generate-notes
