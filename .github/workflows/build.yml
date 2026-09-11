@@ -22,10 +22,10 @@ jobs:
       - name: Configure private dependency access
         shell: pwsh
         env:
-          CORE_READ_TOKEN: ${{ secrets.CORE_READ_TOKEN }}
+          CORE_READ_TOKEN: ${{ secrets.DEP }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:CORE_READ_TOKEN)) {
-            throw "Missing repository secret CORE_READ_TOKEN."
+            throw "Missing repository secret DEP."
           }
           git config --global url."https://x-access-token:$env:CORE_READ_TOKEN@github.com/".insteadOf "https://github.com/"
 
