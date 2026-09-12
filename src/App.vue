@@ -29,7 +29,6 @@ const fileName = computed(() => {
 });
 const originalWidth = ref(640);
 const originalHeight = ref(480);
-const previewUrl = ref("");
 const isMediaLoaded = ref(false);
 const isLoadingMedia = ref(false);
 
@@ -141,14 +140,11 @@ async function loadMedia(filePath: string) {
   errorMessage.value = "";
   isMediaLoaded.value = false;
   previewImage = null;
-  previewUrl.value = "";
 
   try {
     const info: any = await invoke("inspect_media", { filePath });
     originalWidth.value = info.width || 640;
     originalHeight.value = info.height || 480;
-    previewUrl.value = info.preview_base64;
-
     const img = new Image();
     await new Promise<void>((resolve, reject) => {
       img.onload = () => {
@@ -479,9 +475,42 @@ onMounted(async () => {
     console.error(e);
   }
   try {
-    const savedMediaPath = localStorage.getItem(selectedMediaStorageKey);
+    let savedConfig: any = null;
+    try {
+      savedConfig = await invoke("get_saved_stream_config");
+    } catch {
+      // 配置恢复失败时继续使用兼容的 localStorage 路径。
+    }
+
+    const savedMediaPath =
+      localStorage.getItem(selectedMediaStorageKey) || savedConfig?.file_path || null;
     if (savedMediaPath) {
       await loadMedia(savedMediaPath);
+      if (savedConfig) {
+        if (Number.isFinite(savedConfig.fps) && savedConfig.fps > 0) {
+          fps.value = savedConfig.fps;
+        }
+        if (typeof savedConfig.is_loop === "boolean") {
+          isLoop.value = savedConfig.is_loop;
+        }
+        if (["custom", "cover", "contain", "stretch"].includes(savedConfig.scale_mode)) {
+          scaleMode.value = savedConfig.scale_mode;
+        }
+        if (
+          savedConfig.scale_mode === "custom" &&
+          [savedConfig.crop_x, savedConfig.crop_y, savedConfig.crop_w, savedConfig.crop_h].every(
+            (value) => Number.isFinite(value),
+          )
+        ) {
+          crop.value = {
+            x: savedConfig.crop_x,
+            y: savedConfig.crop_y,
+            w: savedConfig.crop_w,
+            h: savedConfig.crop_h,
+          };
+          drawCanvas();
+        }
+      }
       autoStartPending = startMinimized && isAutostart.value && isMediaLoaded.value;
     }
   } catch {

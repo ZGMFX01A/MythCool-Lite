@@ -4,13 +4,16 @@
 use crate::autostart;
 use crate::device;
 use crate::streamer::{resolve_ffmpeg, StreamConfig, StreamManager, StreamStatus};
+use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 use tauri::State;
 
 pub struct AppState {
-    pub stream_manager: Mutex<StreamManager>,
+    pub stream_manager: Arc<Mutex<StreamManager>>,
     pub start_minimized: bool,
+    pub stream_config_path: Mutex<Option<PathBuf>>,
+    pub background_start_cancel: Arc<AtomicBool>,
 }
 
 #[derive(serde::Serialize)]
@@ -70,12 +73,25 @@ pub fn get_stream_status(state: State<'_, AppState>) -> StreamStatus {
 
 #[tauri::command]
 pub fn start_stream(config: StreamConfig, state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .background_start_cancel
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     let mut mgr = state.stream_manager.lock().unwrap();
-    mgr.start(config)
+    mgr.start(config.clone())?;
+    drop(mgr);
+
+    // 后台静默启动不依赖 WebView 的 localStorage，保存最近一次成功启动的配置。
+    if let Err(e) = save_stream_config(&state, &config) {
+        eprintln!("保存后台推流配置失败 (不影响本次推流): {}", e);
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub fn stop_stream(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .background_start_cancel
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     let mut mgr = state.stream_manager.lock().unwrap();
     mgr.stop();
     Ok(())
@@ -96,6 +112,51 @@ pub fn get_start_minimized(state: State<'_, AppState>) -> bool {
     state.start_minimized
 }
 
+/// 返回最近一次成功启动的推流配置，供静默启动和 GUI 恢复使用。
+#[tauri::command]
+pub fn get_saved_stream_config(state: State<'_, AppState>) -> Option<StreamConfig> {
+    load_stream_config(&state).ok().flatten()
+}
+
+pub fn set_stream_config_path(state: &AppState, path: PathBuf) {
+    *state.stream_config_path.lock().unwrap() = Some(path);
+}
+
+pub fn load_saved_stream_config(state: &AppState) -> Option<StreamConfig> {
+    load_stream_config(state).ok().flatten()
+}
+
+fn stream_config_path(state: &AppState) -> Result<PathBuf, String> {
+    state
+        .stream_config_path
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| "推流配置路径尚未初始化".to_string())
+}
+
+fn save_stream_config(state: &AppState, config: &StreamConfig) -> Result<(), String> {
+    let path = stream_config_path(state)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {}", e))?;
+    }
+    let data =
+        serde_json::to_vec_pretty(config).map_err(|e| format!("序列化推流配置失败: {}", e))?;
+    std::fs::write(path, data).map_err(|e| format!("写入推流配置失败: {}", e))
+}
+
+fn load_stream_config(state: &AppState) -> Result<Option<StreamConfig>, String> {
+    let path = stream_config_path(state)?;
+    let data = match std::fs::read(path) {
+        Ok(data) => data,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("读取推流配置失败: {}", e)),
+    };
+    serde_json::from_slice(&data)
+        .map(Some)
+        .map_err(|e| format!("解析推流配置失败: {}", e))
+}
+
 /// 提取媒体文件的尺寸和首帧 Base64 预览图
 #[tauri::command]
 pub fn inspect_media(file_path: String) -> Result<MediaInfo, String> {
@@ -105,6 +166,8 @@ pub fn inspect_media(file_path: String) -> Result<MediaInfo, String> {
         .arg("00:00:00.100")
         .arg("-i")
         .arg(&file_path)
+        .arg("-vf")
+        .arg("scale=960:960:force_original_aspect_ratio=decrease")
         .arg("-vframes")
         .arg("1")
         .arg("-f")
@@ -127,6 +190,8 @@ pub fn inspect_media(file_path: String) -> Result<MediaInfo, String> {
         let mut cmd2 = Command::new(&ffmpeg);
         cmd2.arg("-i")
             .arg(&file_path)
+            .arg("-vf")
+            .arg("scale=960:960:force_original_aspect_ratio=decrease")
             .arg("-vframes")
             .arg("1")
             .arg("-f")
