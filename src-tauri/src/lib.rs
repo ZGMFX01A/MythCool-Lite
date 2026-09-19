@@ -3,6 +3,7 @@
 mod autostart;
 mod commands;
 mod device;
+mod shutdown;
 mod streamer;
 
 use commands::AppState;
@@ -127,6 +128,9 @@ pub fn run() {
             let state = app.state::<AppState>();
             commands::set_stream_config_path(&state, config_dir.join("stream-config.json"));
 
+            // 初始化 Windows 关机与错误抑制监听
+            shutdown::init_windows_shutdown_handler(Arc::clone(&state.stream_manager));
+
             // 系统托盘菜单
             let show_i = MenuItem::with_id(app, "show", "显示控制台", true, None::<&str>)?;
             let stop_i = MenuItem::with_id(app, "stop", "停止推流", true, None::<&str>)?;
@@ -207,9 +211,11 @@ pub fn run() {
         .run(|app, event| {
             match event {
                 // 销毁最后一个 WebView 窗口时，阻止 Tauri 因“无窗口”结束应用。
-                // 托盘菜单调用 app.exit(0) 会携带退出码，不会被这里拦截。
-                tauri::RunEvent::ExitRequested { api, code, .. } if code.is_none() => {
-                    api.prevent_exit();
+                // 若系统正在关机（shutdown::is_shutting_down()）或托盘菜单显式调用 app.exit(0)，则正常放行退出。
+                tauri::RunEvent::ExitRequested { api, code, .. } => {
+                    if code.is_none() && !shutdown::is_shutting_down() {
+                        api.prevent_exit();
+                    }
                 }
                 tauri::RunEvent::Exit => {
                     let state: tauri::State<AppState> = app.state();

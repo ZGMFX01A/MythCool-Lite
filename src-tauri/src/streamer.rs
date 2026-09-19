@@ -469,7 +469,7 @@ fn run_stream_worker(
     let mut last_stat_time = Instant::now();
     let mut stat_frames = 0u64;
 
-    while !stop_flag.load(Ordering::SeqCst) {
+    while !stop_flag.load(Ordering::SeqCst) && !crate::shutdown::is_shutting_down() {
         let frame_start = Instant::now();
         let mut got = 0;
         let mut eof = false;
@@ -489,7 +489,7 @@ fn run_stream_worker(
             }
         }
 
-        if stop_flag.load(Ordering::SeqCst) {
+        if stop_flag.load(Ordering::SeqCst) || crate::shutdown::is_shutting_down() {
             break;
         }
 
@@ -499,11 +499,13 @@ fn run_stream_worker(
             std::mem::swap(&mut buf, &mut last_frame);
             has_frame = true;
         } else {
+            // 系统关机流程中，直接退出工作线程，禁止重启 FFmpeg
+            if stop_flag.load(Ordering::SeqCst) || crate::shutdown::is_shutting_down() {
+                break;
+            }
+
             // 输入流结束（例如静态单张图片、或短动图非 loop 模式）
             if !has_frame {
-                if stop_flag.load(Ordering::SeqCst) {
-                    break;
-                }
                 let mut st = status_arc.lock().unwrap();
                 st.is_running = false;
                 st.error_message = Some("未解码到有效画面（文件损坏或格式不支持）".to_string());
@@ -514,16 +516,19 @@ fn run_stream_worker(
             if config.is_loop {
                 // 重启 ffmpeg
                 kill_ffmpeg_child(&child_handle);
-                if stop_flag.load(Ordering::SeqCst) {
+                if stop_flag.load(Ordering::SeqCst) || crate::shutdown::is_shutting_down() {
                     break;
                 }
                 thread::sleep(Duration::from_millis(30));
+                if stop_flag.load(Ordering::SeqCst) || crate::shutdown::is_shutting_down() {
+                    break;
+                }
                 match spawn_ffmpeg(&ffmpeg_path, &config, target_w, target_h)
                     .and_then(|child| install_ffmpeg_child(child, &child_handle))
                 {
                     Ok(new_stdout) => stdout = new_stdout,
                     Err(e) => {
-                        if stop_flag.load(Ordering::SeqCst) {
+                        if stop_flag.load(Ordering::SeqCst) || crate::shutdown::is_shutting_down() {
                             break;
                         }
                         let mut st = status_arc.lock().unwrap();
@@ -538,7 +543,7 @@ fn run_stream_worker(
         // 推送最后一帧有效数据
         if has_frame {
             if let Err(e) = device.push_frame(&last_frame, target_w, target_h) {
-                if stop_flag.load(Ordering::SeqCst) {
+                if stop_flag.load(Ordering::SeqCst) || crate::shutdown::is_shutting_down() {
                     kill_ffmpeg_child(&child_handle);
                     break;
                 }
