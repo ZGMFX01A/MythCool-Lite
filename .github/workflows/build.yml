@@ -86,16 +86,11 @@ jobs:
           # 1. 拷贝原生编译的 Release 主程序（原地运行，对 C 盘零污染、零解压）
           Copy-Item -LiteralPath $releaseExe -Destination (Join-Path $portableDir "MythCoolLite.exe") -Force
 
-          # 2. 集成推流与媒体尺寸/信息探测所需的 ffmpeg.exe 与 ffprobe.exe
+          # 2. 仅集成推流真正必需的 ffmpeg.exe（精简掉无用的 ffplay 与静态 ffprobe，探测回退由 ffmpeg 自身承担）
           $ffmpegExe = Join-Path $env:MYTHCOOL_FFMPEG_BIN "ffmpeg.exe"
-          $ffprobeExe = Join-Path $env:MYTHCOOL_FFMPEG_BIN "ffprobe.exe"
           if (Test-Path -LiteralPath $ffmpegExe) {
             Copy-Item -LiteralPath $ffmpegExe -Destination (Join-Path $portableDir "bin\ffmpeg\ffmpeg.exe") -Force
-          }
-          if (Test-Path -LiteralPath $ffprobeExe) {
-            Copy-Item -LiteralPath $ffprobeExe -Destination (Join-Path $portableDir "bin\ffmpeg\ffprobe.exe") -Force
-          }
-          if ((-not (Test-Path -LiteralPath $ffmpegExe)) -and (-not (Test-Path -LiteralPath $ffprobeExe))) {
+          } else {
             Copy-Item -Path (Join-Path $env:MYTHCOOL_FFMPEG_BIN "*") -Destination (Join-Path $portableDir "bin\ffmpeg") -Recurse -Force
           }
 
