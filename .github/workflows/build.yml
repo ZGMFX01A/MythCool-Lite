@@ -62,16 +62,13 @@ jobs:
           }
           "MYTHCOOL_FFMPEG_BIN=$($ffmpeg.Directory.FullName)" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Create standalone executable
+      - name: Create clean portable package
         shell: pwsh
         run: |
-          $workRoot = Join-Path $env:RUNNER_TEMP "MythCoolLite-package"
-          $stagingDir = Join-Path $workRoot "payload"
-          $payloadZip = Join-Path $workRoot "payload.zip"
-          $launcherSource = Join-Path $workRoot "launcher.cs"
           $outputDir = Join-Path $env:GITHUB_WORKSPACE "artifact"
           $releaseExe = Join-Path $env:GITHUB_WORKSPACE "src-tauri\target\release\desktop.exe"
-          $iconPath = Join-Path $env:GITHUB_WORKSPACE "src-tauri\icons\icon.ico"
+          $portableDir = Join-Path $env:RUNNER_TEMP "MythCoolLite-Portable"
+          $portableZip = Join-Path $outputDir "MythCoolLite-Portable.zip"
 
           if (-not (Test-Path -LiteralPath $releaseExe)) {
             throw "Release executable was not found: $releaseExe"
@@ -80,165 +77,69 @@ jobs:
             throw "FFmpeg runtime directory was not found."
           }
 
-          New-Item -ItemType Directory -Path (Join-Path $stagingDir "bin\ffmpeg") -Force | Out-Null
           New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
-          Copy-Item -LiteralPath $releaseExe -Destination (Join-Path $stagingDir "MythCoolLite.exe") -Force
-          Copy-Item -Path (Join-Path $env:MYTHCOOL_FFMPEG_BIN "*") `
-            -Destination (Join-Path $stagingDir "bin\ffmpeg") -Recurse -Force
-
-          $payloadVersion = $env:GITHUB_SHA
-          Set-Content -LiteralPath (Join-Path $stagingDir "payload.version") -Value $payloadVersion -Encoding ascii
-          Compress-Archive -Path (Join-Path $stagingDir "*") -DestinationPath $payloadZip -CompressionLevel Fastest
-
-          $csSource = @'
-          using System;
-          using System.Diagnostics;
-          using System.IO;
-          using System.IO.Compression;
-          using System.Reflection;
-          using System.Text;
-
-          class Program {
-          private const string PayloadVersion = "__PAYLOAD_VERSION__";
-
-          private static string QuoteArgument(string value) {
-          if (value == null || value.Length == 0) return "\"\"";
-          bool needsQuotes = false;
-          for (int i = 0; i < value.Length; i++) {
-          if (char.IsWhiteSpace(value[i]) || value[i] == '\"') {
-          needsQuotes = true;
-          break;
+          if (Test-Path -LiteralPath $portableDir) {
+            Remove-Item -LiteralPath $portableDir -Recurse -Force
           }
-          }
-          if (!needsQuotes) return value;
+          New-Item -ItemType Directory -Path (Join-Path $portableDir "bin\ffmpeg") -Force | Out-Null
 
-          StringBuilder result = new StringBuilder();
-          result.Append('\"');
-          int backslashes = 0;
-          for (int i = 0; i < value.Length; i++) {
-          char current = value[i];
-          if (current == '\\') {
-          backslashes++;
-          } else if (current == '\"') {
-          result.Append('\\', backslashes * 2 + 1);
-          result.Append('\"');
-          backslashes = 0;
-          } else {
-          result.Append('\\', backslashes);
-          result.Append(current);
-          backslashes = 0;
+          # 1. 拷贝原生编译的 Release 主程序（原地运行，对 C 盘零污染、零解压）
+          Copy-Item -LiteralPath $releaseExe -Destination (Join-Path $portableDir "MythCoolLite.exe") -Force
+
+          # 2. 集成推流与媒体尺寸/信息探测所需的 ffmpeg.exe 与 ffprobe.exe
+          $ffmpegExe = Join-Path $env:MYTHCOOL_FFMPEG_BIN "ffmpeg.exe"
+          $ffprobeExe = Join-Path $env:MYTHCOOL_FFMPEG_BIN "ffprobe.exe"
+          if (Test-Path -LiteralPath $ffmpegExe) {
+            Copy-Item -LiteralPath $ffmpegExe -Destination (Join-Path $portableDir "bin\ffmpeg\ffmpeg.exe") -Force
           }
+          if (Test-Path -LiteralPath $ffprobeExe) {
+            Copy-Item -LiteralPath $ffprobeExe -Destination (Join-Path $portableDir "bin\ffmpeg\ffprobe.exe") -Force
           }
-          result.Append('\\', backslashes * 2);
-          result.Append('\"');
-          return result.ToString();
+          if ((-not (Test-Path -LiteralPath $ffmpegExe)) -and (-not (Test-Path -LiteralPath $ffprobeExe))) {
+            Copy-Item -Path (Join-Path $env:MYTHCOOL_FFMPEG_BIN "*") -Destination (Join-Path $portableDir "bin\ffmpeg") -Recurse -Force
           }
 
-          private static bool IsInside(string root, string path) {
-          string normalizedRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-          string normalizedPath = Path.GetFullPath(path);
-          return normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase);
-          }
-
-          static void Main(string[] args) {
-          string targetDir = Path.Combine(
-          Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-          "MythCoolLite", "App"
-          );
-          string exePath = Path.Combine(targetDir, "MythCoolLite.exe");
-          string ffmpegPath = Path.Combine(targetDir, "bin", "ffmpeg", "ffmpeg.exe");
-          string versionPath = Path.Combine(targetDir, "payload.version");
-
-          bool needExtract = !File.Exists(exePath) || !File.Exists(ffmpegPath);
-          if (!needExtract) {
-          try {
-          needExtract = File.ReadAllText(versionPath) != PayloadVersion;
-          } catch {
-          needExtract = true;
-          }
-          }
-
-          if (needExtract) {
-          try {
-          Directory.CreateDirectory(targetDir);
-          using (Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("payload.zip")) {
-          if (stream == null) throw new InvalidOperationException("Embedded payload is missing.");
-          using (ZipArchive archive = new ZipArchive(stream)) {
-          foreach (ZipArchiveEntry entry in archive.Entries) {
-          string destination = Path.Combine(targetDir, entry.FullName);
-          if (!IsInside(targetDir, destination)) continue;
-          if (string.IsNullOrEmpty(entry.Name)) {
-          Directory.CreateDirectory(destination);
-          } else {
-          string parent = Path.GetDirectoryName(destination);
-          if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
-          entry.ExtractToFile(destination, true);
-          }
-          }
-          }
-          }
-          } catch {
-          return;
-          }
-          }
-
-          try {
-          ProcessStartInfo startInfo = new ProcessStartInfo {
-          FileName = exePath,
-          WorkingDirectory = targetDir,
-          UseShellExecute = true
-          };
-
-          if (args != null && args.Length > 0) {
-          StringBuilder commandLine = new StringBuilder();
-          for (int i = 0; i < args.Length; i++) {
-          if (i > 0) commandLine.Append(' ');
-          commandLine.Append(QuoteArgument(args[i]));
-          }
-          startInfo.Arguments = commandLine.ToString();
-          }
-
-          Process.Start(startInfo);
-          } catch {
-          // Windows reports launch failures to the user.
-          }
-          }
-          }
-          '@
-          $csSource = $csSource.Replace("__PAYLOAD_VERSION__", $payloadVersion)
-          Set-Content -LiteralPath $launcherSource -Value $csSource -Encoding utf8
-
-          $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-          if (-not (Test-Path -LiteralPath $csc)) {
-            throw "C# compiler was not found: $csc"
-          }
-
-          $singleExe = Join-Path $outputDir "MythCoolLite.exe"
-          $cscArgs = @(
-            "/target:winexe",
-            "/platform:anycpu",
-            "/optimize+",
-            "/r:System.dll",
-            "/r:System.IO.Compression.dll",
-            "/r:System.IO.Compression.FileSystem.dll",
-            ("/resource:" + $payloadZip + ",payload.zip"),
-            ("/out:" + $singleExe),
-            $launcherSource
+          # 3. 附带快速启动与防占用脚本
+          $cmdLines = @(
+            '@echo off',
+            'setlocal',
+            'set DIR=%~dp0',
+            'taskkill /IM MythCool.exe /F >nul 2>&1',
+            'taskkill /IM MythCoolLite.exe /F >nul 2>&1',
+            'ping -n 2 127.0.0.1 >nul',
+            'start "" "%DIR%MythCoolLite.exe" %*',
+            'endlocal'
           )
-          if (Test-Path -LiteralPath $iconPath) {
-            $cscArgs += ("/win32icon:" + $iconPath)
-          }
+          [IO.File]::WriteAllLines((Join-Path $portableDir "start-portable.cmd"), $cmdLines)
 
-          & $csc @cscArgs
-          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $singleExe)) {
-            throw "Standalone executable creation failed."
-          }
+          # 4. 生成绿色说明文档
+          $readme = @(
+            '============================================================',
+            '  Myth.Cool Lite 绿色免安装便携版',
+            '============================================================',
+            '',
+            '1. 纯正绿色便携：解压即可直接使用，对 C 盘零污染、零写入、零解压残留。',
+            '2. 双击 MythCoolLite.exe 即可直接启动运行。',
+            '3. 如原版 Myth.Cool 占用副屏，可运行 start-portable.cmd 自动释放并启动。',
+            '4. 卸载只需直接删除本文件夹，干干净净。',
+            '============================================================'
+          )
+          [IO.File]::WriteAllLines((Join-Path $portableDir "README.txt"), $readme)
 
-      - name: Upload standalone executable
+          # 5. 压缩为最终便携包 ZIP
+          if (Test-Path -LiteralPath $portableZip) {
+            Remove-Item -LiteralPath $portableZip -Force
+          }
+          Compress-Archive -Path (Join-Path $portableDir "*") -DestinationPath $portableZip -CompressionLevel Optimal
+
+          $sizeMB = [math]::Round(((Get-Item $portableZip).Length / 1MB), 2)
+          Write-Host "Created clean portable package: $portableZip ($sizeMB MB)"
+
+      - name: Upload portable artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MythCoolLite
-          path: artifact/MythCoolLite.exe
+          name: MythCoolLite-Portable
+          path: artifact/MythCoolLite-Portable.zip
           if-no-files-found: error
 
       - name: Upload executable to GitHub Release
@@ -248,5 +149,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ github.ref_name }}" `
-            "artifact\MythCoolLite.exe" `
+            "artifact\MythCoolLite-Portable.zip" `
             --clobber
+

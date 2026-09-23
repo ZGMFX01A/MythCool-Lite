@@ -15,7 +15,10 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Manager, WebviewWindowBuilder};
 
 fn create_main_window(app: &tauri::AppHandle) -> Result<(), String> {
-    if app.get_webview_window("main").is_some() {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
         return Ok(());
     }
 
@@ -27,10 +30,13 @@ fn create_main_window(app: &tauri::AppHandle) -> Result<(), String> {
         .find(|window| window.label == "main")
         .ok_or_else(|| "找不到 main 窗口配置".to_string())?;
 
-    WebviewWindowBuilder::from_config(app, window_config)
+    let window = WebviewWindowBuilder::from_config(app, window_config)
         .map_err(|e| format!("创建管理界面失败: {}", e))?
         .build()
         .map_err(|e| format!("创建管理界面失败: {}", e))?;
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
     Ok(())
 }
 

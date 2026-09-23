@@ -610,8 +610,9 @@ onUnmounted(() => {
     <header class="navbar">
       <div class="brand">
         <img class="brand-icon" :src="appIcon" alt="Myth.Cool Lite" />
-        <div>
-          <h1 class="brand-title">Myth.Cool Lite</h1>
+        <div class="brand-text">
+          <span class="brand-title">Myth.Cool Lite</span>
+          <span class="brand-badge">控制台</span>
         </div>
       </div>
 
@@ -637,13 +638,13 @@ onUnmounted(() => {
       </div>
     </header>
 
-    <!-- 主体区域 -->
+    <!-- 主体区域（严格零滚动一屏流） -->
     <main class="main-content">
       <!-- 左侧：媒体导入与裁切缩放工作台 -->
       <section class="crop-studio">
         <div class="card-header">
           <div class="header-title">
-            <span>🎬 媒体裁切与画面缩放</span>
+            <span class="header-name">🎬 媒体裁切与画面缩放</span>
             <span v-if="fileName" class="file-tag">{{ fileName }} ({{ originalWidth }}×{{ originalHeight }})</span>
           </div>
 
@@ -652,7 +653,7 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- 画布编辑视口 -->
+        <!-- 画布编辑视口（自适应剩余高度与宽度） -->
         <div class="canvas-wrapper">
           <div v-if="isLoadingMedia" class="overlay-loading">
             <div class="spinner"></div>
@@ -671,15 +672,16 @@ onUnmounted(() => {
           <div v-if="!isMediaLoaded && !isLoadingMedia" class="empty-placeholder" @click="selectMediaFile">
             <div class="upload-icon">📁</div>
             <p>点击选择或将 <b>MP4 / GIF / 图片</b> 拖拽至此处</p>
-            <span class="hint">支持任意比例，可在下方直观裁切并根据硬件规格自动匹配</span>
+            <span class="hint">支持任意长宽比，可在下方工具栏直观裁切并自动适配硬件副屏</span>
           </div>
         </div>
 
-        <!-- 裁切控制条 -->
+        <!-- 裁切控制条（紧凑双行密集工具栏） -->
         <div class="crop-controls">
-          <div class="crop-toolbar">
-            <div class="crop-toolbar-main">
-              <label class="checkbox-label">
+          <!-- 上行：比例锁定、快捷按钮、以及数值读数 -->
+          <div class="crop-row-top">
+            <div class="crop-quick-actions">
+              <label class="checkbox-label" title="限制裁切框长宽比与副屏物理分辨率一致">
                 <input type="checkbox" v-model="lockAspect" />
                 <span>锁定副屏比例</span>
                 <span class="control-value">{{ deviceWidth }}×{{ deviceHeight }} · {{ deviceAspectStr }}</span>
@@ -690,64 +692,66 @@ onUnmounted(() => {
                 <button class="btn btn-ghost btn-xs" @click="fitFullCrop">完整画面</button>
               </div>
             </div>
-            <span class="control-caption">拖动画面中的裁切框，或选择下方适配方式</span>
-          </div>
 
-          <!-- 缩放模式 -->
-          <div class="mode-selector">
-            <span class="mode-title">适配方式</span>
-            <div class="mode-options">
-              <label :class="['radio-label', { active: scaleMode === 'custom' }]" title="按上方裁切框输出">
-              <input type="radio" value="custom" v-model="scaleMode" />
-                <span class="mode-name">精准裁切</span>
-              </label>
-              <label :class="['radio-label', { active: scaleMode === 'cover' }]" title="保持比例并填满副屏，自动裁切边缘">
-              <input type="radio" value="cover" v-model="scaleMode" />
-                <span class="mode-name">等比填充</span>
-              </label>
-              <label :class="['radio-label', { active: scaleMode === 'contain' }]" title="保持比例并完整显示，四周可能留黑">
-              <input type="radio" value="contain" v-model="scaleMode" />
-                <span class="mode-name">等比完整</span>
-              </label>
-              <label :class="['radio-label', { active: scaleMode === 'stretch' }]" title="拉伸画面铺满副屏，不保持原比例">
-              <input type="radio" value="stretch" v-model="scaleMode" />
-                <span class="mode-name">强制拉伸</span>
-              </label>
+            <div class="crop-info">
+              <span class="readout-item"><span class="readout-label">位置</span><b>{{ crop.x }}, {{ crop.y }}</b></span>
+              <span class="readout-item"><span class="readout-label">选区</span><b>{{ crop.w }}×{{ crop.h }}</b></span>
+              <span class="readout-item"><span class="readout-label">输出</span><b>{{ deviceWidth }}×{{ deviceHeight }}</b></span>
             </div>
           </div>
 
-          <div class="crop-info">
-            <span class="readout-item"><span class="readout-label">位置</span><b>{{ crop.x }}, {{ crop.y }}</b></span>
-            <span class="readout-item"><span class="readout-label">选区</span><b>{{ crop.w }} × {{ crop.h }}</b></span>
-            <span class="readout-item"><span class="readout-label">输出</span><b>{{ deviceWidth }} × {{ deviceHeight }}</b></span>
+          <!-- 下行：适配方式分段胶囊 -->
+          <div class="mode-selector">
+            <span class="mode-title">适配方式</span>
+            <div class="mode-options">
+              <label :class="['radio-label', { active: scaleMode === 'custom' }]" title="按裁切选区输出">
+                <input type="radio" value="custom" v-model="scaleMode" />
+                <span class="mode-name">精准裁切</span>
+              </label>
+              <label :class="['radio-label', { active: scaleMode === 'cover' }]" title="保持比例填满副屏，裁切两边">
+                <input type="radio" value="cover" v-model="scaleMode" />
+                <span class="mode-name">等比填充</span>
+              </label>
+              <label :class="['radio-label', { active: scaleMode === 'contain' }]" title="保持比例完整显示，四周留黑">
+                <input type="radio" value="contain" v-model="scaleMode" />
+                <span class="mode-name">等比完整</span>
+              </label>
+              <label :class="['radio-label', { active: scaleMode === 'stretch' }]" title="拉伸铺满副屏，忽略原长宽比">
+                <input type="radio" value="stretch" v-model="scaleMode" />
+                <span class="mode-name">强制拉伸</span>
+              </label>
+            </div>
           </div>
         </div>
       </section>
 
       <!-- 右侧：硬件配置与推流控制 -->
       <aside class="control-panel">
-        <!-- 核心推流大按钮 -->
+        <!-- 核心推流控制按钮 -->
         <div class="action-card">
           <button
             v-if="!isStreaming"
-            class="btn btn-primary btn-large"
+            class="btn btn-primary btn-push"
             :disabled="!isMediaLoaded"
             @click="() => void startPush()"
           >
             🚀 开始推流至副屏
           </button>
-          <button v-else class="btn btn-danger btn-large" @click="stopPush">
+          <button v-else class="btn btn-danger btn-push" @click="stopPush">
             ⏹ 停止推流并释放设备
           </button>
-          <p class="sub-hint">点击关闭窗口将自动最小化到系统托盘，维持屏幕持续推流</p>
+          <p class="sub-hint">关闭窗口自动最小化到系统托盘，维持持续推流</p>
         </div>
 
         <!-- 推流参数卡片 -->
         <div class="param-card">
-          <h3 class="card-subtitle">⚙️ 推流参数设定</h3>
+          <div class="section-title">⚙️ 推流参数设定</div>
 
           <div class="param-item">
-            <label>推帧帧率 (FPS)</label>
+            <div class="param-label-row">
+              <label>推帧帧率 (FPS)</label>
+              <span class="param-hint">推荐 16 FPS 最稳省 CPU</span>
+            </div>
             <div class="fps-selector">
               <button
                 v-for="val in [12, 16, 24, 30]"
@@ -758,23 +762,22 @@ onUnmounted(() => {
                 {{ val }}
               </button>
             </div>
-            <span class="param-hint">实测 16 FPS 最为稳定且省 CPU；静态图片仅推单帧保持</span>
           </div>
 
           <div class="param-item">
-            <label class="checkbox-label">
+            <label class="checkbox-label compact">
               <input type="checkbox" v-model="isLoop" />
-              <span>循环播放 (视频/GIF 无限循环)</span>
+              <span>循环播放 (视频 / GIF 无限循环)</span>
             </label>
           </div>
         </div>
 
         <!-- 硬件与推流实时监控 -->
         <div class="monitor-card">
-          <h3 class="card-subtitle">📊 实时运行指标</h3>
+          <div class="section-title">📊 实时运行指标</div>
           <div class="stat-grid">
             <div class="stat-box">
-              <span class="stat-label">目标物理面板</span>
+              <span class="stat-label">目标面板</span>
               <span class="stat-val highlight">{{ deviceWidth }} × {{ deviceHeight }}</span>
             </div>
             <div class="stat-box">
@@ -786,7 +789,7 @@ onUnmounted(() => {
               <span class="stat-val">{{ colorChannelText }}</span>
             </div>
             <div class="stat-box">
-              <span class="stat-label">推流状态</span>
+              <span class="stat-label">推流帧率</span>
               <span class="stat-val" :class="{ highlight: isStreaming }">
                 {{ isStreaming ? `${currentFps.toFixed(1)} fps` : "待机中" }}
               </span>
@@ -799,6 +802,7 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- 底部作者与外链信息 -->
         <div class="panel-footer">
           <span class="author-credit">ZGMFX01A</span>
           <a class="repository-link" href="#" @click.prevent="openPublicRepository">GitHub 项目主页 ↗</a>
@@ -809,7 +813,7 @@ onUnmounted(() => {
 </template>
 
 <style>
-/* 全局零边距与重置，根治系统窗口白边问题 */
+/* 全局零边距与严苛视口重置，根除滚动条与白边 */
 html,
 body,
 #app {
@@ -817,8 +821,7 @@ body,
   padding: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
+  overflow: hidden !important;
   background-color: #0b0f19 !important;
   border: none !important;
   outline: none !important;
@@ -845,66 +848,81 @@ body,
   color: #f1f5f9;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
   user-select: none;
-  overflow: visible;
+  overflow: hidden;
 }
 
-/* 顶部导航条 */
+/* 顶部导航条：收敛精致高度与纯净色调 */
 .navbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 24px;
-  background-color: #111827;
-  border-bottom: 1px solid #1f2937;
+  height: 46px;
+  flex: 0 0 46px;
+  padding: 0 16px;
+  background-color: #0f172a;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .brand-icon {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
   object-fit: contain;
-  border-radius: 10px;
-  background: #0b1220;
-  border: 1px solid rgba(56, 189, 248, 0.28);
-  padding: 2px;
+  border-radius: 5px;
+}
+
+.brand-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .brand-title {
   margin: 0;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: #f1f5f9;
+  line-height: 1;
+}
+
+.brand-badge {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  font-weight: 500;
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  line-height: 1.2;
 }
 
 .nav-status-group {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 /* 状态 Badge */
 .badge {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
+  gap: 6px;
+  padding: 3px 10px;
   border-radius: 9999px;
   font-size: 12px;
   font-weight: 500;
 }
 
 .dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
 }
 
@@ -915,7 +933,7 @@ body,
 }
 .badge-green .dot {
   background-color: #22c55e;
-  box-shadow: 0 0 8px #22c55e;
+  box-shadow: 0 0 6px #22c55e;
 }
 
 .badge-red {
@@ -934,12 +952,13 @@ body,
 }
 .badge-cyan .dot {
   background-color: #38bdf8;
-  box-shadow: 0 0 8px #38bdf8;
+  box-shadow: 0 0 6px #38bdf8;
 }
 
 .badge-gray {
   background-color: #1f2937;
   color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 .badge-gray .dot {
   background-color: #64748b;
@@ -949,7 +968,7 @@ body,
 .autostart-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   font-size: 12px;
   color: #cbd5e1;
@@ -960,7 +979,7 @@ body,
 }
 
 .toggle-slider {
-  width: 34px;
+  width: 32px;
   height: 18px;
   background-color: #334155;
   border-radius: 9999px;
@@ -985,58 +1004,19 @@ body,
 }
 
 .autostart-toggle input:checked + .toggle-slider::after {
-  transform: translateX(16px);
+  transform: translateX(14px);
 }
 
-/* 主容器布局 */
+/* 主容器布局：严格零滚动一屏流 */
 .main-content {
   display: grid;
-  grid-template-columns: 1fr 340px;
-  gap: 20px;
-  padding: 20px;
+  grid-template-columns: 1fr 310px;
+  gap: 12px;
+  padding: 10px 14px;
   flex: 1;
   min-height: 0;
   min-width: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
-.panel-footer {
-  margin-top: auto;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 12px;
-  min-height: 36px;
-  padding: 4px 2px 0;
-}
-
-.author-credit {
-  color: #64748b;
-  font-size: 11px;
-}
-
-.repository-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border: 1px solid rgba(56, 189, 248, 0.5);
-  border-radius: 7px;
-  background: rgba(14, 116, 144, 0.2);
-  color: #7dd3fc;
-  font-size: 12px;
-  font-weight: 600;
-  text-decoration: none;
-  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.08), 0 4px 14px rgba(8, 47, 73, 0.24);
-  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.repository-link:hover {
-  border-color: #7dd3fc;
-  background: rgba(14, 165, 233, 0.34);
-  color: #e0f2fe;
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.14), 0 5px 18px rgba(8, 47, 73, 0.36);
+  overflow: hidden;
 }
 
 /* 裁切工作台 */
@@ -1044,45 +1024,51 @@ body,
   display: flex;
   flex-direction: column;
   background-color: #111827;
-  border: 1px solid #1f2937;
-  border-radius: 12px;
-  padding: 16px;
-  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  gap: 8px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex: 0 0 auto;
+  min-height: 28px;
 }
 
 .header-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: #e2e8f0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .file-tag {
-  font-size: 12px;
+  font-size: 11px;
   color: #38bdf8;
   background: rgba(56, 189, 248, 0.1);
-  padding: 2px 8px;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  padding: 2px 7px;
   border-radius: 4px;
 }
 
 .canvas-wrapper {
   position: relative;
   flex: 1;
+  min-height: 0;
   background-color: #030712;
-  border: 1px dashed #334155;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 400px;
   overflow: hidden;
 }
 
@@ -1090,6 +1076,7 @@ body,
   cursor: crosshair;
   max-width: 100%;
   max-height: 100%;
+  object-fit: contain;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
@@ -1099,14 +1086,14 @@ body,
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  padding: 40px;
+  padding: 24px;
   color: #94a3b8;
   text-align: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .upload-icon {
-  font-size: 48px;
+  font-size: 40px;
   opacity: 0.8;
 }
 
@@ -1115,25 +1102,25 @@ body,
 }
 
 .hint {
-  font-size: 12px;
+  font-size: 11px;
   color: #64748b;
 }
 
 .overlay-loading {
   position: absolute;
   inset: 0;
-  background-color: rgba(11, 15, 25, 0.8);
+  background-color: rgba(11, 15, 25, 0.85);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   z-index: 10;
 }
 
 .spinner {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 3px solid #38bdf8;
   border-top-color: transparent;
   border-radius: 50%;
@@ -1146,98 +1133,126 @@ body,
   }
 }
 
-/* 裁切控制栏 */
+/* 裁切控制栏：紧凑密集双行工具栏 */
 .crop-controls {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
   background-color: #1a2234;
-  padding: 12px 14px;
+  padding: 8px 10px;
   border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  flex: 0 0 auto;
 }
 
-.crop-toolbar {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.crop-toolbar-main {
+.crop-row-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
-.control-caption {
-  color: #64748b;
-  font-size: 11px;
+.crop-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
 }
 
 .checkbox-label {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
 }
 
-.crop-toolbar .checkbox-label {
-  min-width: 0;
-  white-space: nowrap;
+.checkbox-label.compact {
+  font-size: 12px;
 }
 
 .control-value {
   color: #7dd3fc;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  background: rgba(56, 189, 248, 0.1);
-  border: 1px solid rgba(56, 189, 248, 0.18);
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.2);
   border-radius: 999px;
-  padding: 3px 7px;
+  padding: 1px 6px;
 }
 
 .btn-group {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   flex: 0 0 auto;
+}
+
+.crop-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 7px;
+  border: 1px solid rgba(51, 65, 85, 0.7);
+  border-radius: 5px;
+  background: rgba(15, 23, 42, 0.65);
+  font-size: 10.5px;
+  color: #64748b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+}
+
+.readout-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.readout-label {
+  color: #64748b;
+}
+
+.readout-item b {
+  color: #cbd5e1;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .mode-selector {
   display: grid;
-  grid-template-columns: 62px minmax(0, 1fr);
+  grid-template-columns: 56px 1fr;
   align-items: center;
-  gap: 10px;
-  font-size: 13px;
+  gap: 8px;
 }
 
 .mode-title {
   color: #94a3b8;
+  font-size: 12px;
   white-space: nowrap;
 }
 
 .mode-options {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  min-width: 0;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
 }
 
 .radio-label {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 34px;
-  padding: 6px 8px;
+  gap: 4px;
+  height: 28px;
+  padding: 0 6px;
   border: 1px solid #334155;
-  border-radius: 7px;
+  border-radius: 6px;
   background: #111827;
   color: #cbd5e1;
-  font-size: 12px;
+  font-size: 11.5px;
   cursor: pointer;
   transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+  white-space: nowrap;
 }
 
 .radio-label:hover {
@@ -1246,9 +1261,9 @@ body,
 
 .radio-label.active {
   border-color: #38bdf8;
-  background: rgba(14, 116, 144, 0.22);
+  background: rgba(14, 116, 144, 0.28);
   color: #f8fafc;
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.15);
 }
 
 .radio-label input {
@@ -1262,52 +1277,34 @@ body,
   white-space: nowrap;
 }
 
-.crop-info {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  padding: 7px 9px;
-  border: 1px solid rgba(51, 65, 85, 0.7);
-  border-radius: 7px;
-  background: rgba(15, 23, 42, 0.55);
-  font-size: 11px;
-  color: #64748b;
-  font-family: monospace;
-}
-
-.readout-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.readout-label {
-  color: #64748b;
-}
-
-.readout-item b {
-  color: #cbd5e1;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 右侧面板 */
+/* 右侧控制面板 */
 .control-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .action-card {
   background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-  border: 1px solid #334155;
-  border-radius: 12px;
-  padding: 16px;
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 10px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.btn-push {
+  width: 100%;
+  height: 38px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 7px;
 }
 
 .sub-hint {
@@ -1315,22 +1312,24 @@ body,
   color: #64748b;
   margin: 0;
   text-align: center;
+  line-height: 1.3;
 }
 
 .param-card,
 .monitor-card {
   background-color: #111827;
-  border: 1px solid #1f2937;
-  border-radius: 12px;
-  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 7px;
+  flex: 0 0 auto;
 }
 
-.card-subtitle {
+.section-title {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #e2e8f0;
 }
@@ -1338,67 +1337,75 @@ body,
 .param-item {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
-.param-item label {
-  font-size: 12px;
+.param-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
   color: #94a3b8;
+}
+
+.param-hint {
+  font-size: 10.5px;
+  color: #64748b;
 }
 
 .fps-selector {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  gap: 6px;
 }
 
 .fps-btn {
+  height: 26px;
   background-color: #1e293b;
   border: 1px solid #334155;
   color: #e2e8f0;
-  padding: 6px;
-  border-radius: 6px;
+  border-radius: 5px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   transition: 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .fps-btn.active {
   background-color: #0284c7;
   border-color: #38bdf8;
   color: #fff;
-}
-
-.param-hint {
-  font-size: 11px;
-  color: #64748b;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.3);
 }
 
 .stat-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 6px;
 }
 
 .stat-box {
   background-color: #182234;
   border-radius: 6px;
-  padding: 8px 12px;
+  padding: 5px 8px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .stat-label {
-  font-size: 11px;
+  font-size: 10px;
   color: #94a3b8;
 }
 
 .stat-val {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #f8fafc;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-val.highlight {
@@ -1409,23 +1416,59 @@ body,
   background-color: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
   color: #fca5a5;
-  font-size: 12px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  line-height: 1.4;
+  font-size: 11px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  line-height: 1.3;
 }
 
-/* 按钮样式规范 */
+.panel-footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 2px;
+  flex: 0 0 auto;
+}
+
+.author-credit {
+  color: #475569;
+  font-size: 11px;
+}
+
+.repository-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  border-radius: 5px;
+  background: rgba(14, 116, 144, 0.15);
+  color: #7dd3fc;
+  font-size: 11px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.repository-link:hover {
+  border-color: #7dd3fc;
+  background: rgba(14, 165, 233, 0.28);
+  color: #f0f9ff;
+}
+
+/* 按钮通用规范 */
 .btn {
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;
   font-weight: 500;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  transition: all 0.2s;
+  gap: 5px;
+  transition: all 0.15s;
 }
 
 .btn:disabled {
@@ -1436,7 +1479,7 @@ body,
 .btn-primary {
   background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.3);
+  box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -1446,7 +1489,7 @@ body,
 .btn-danger {
   background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+  box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
 }
 
 .btn-danger:hover {
@@ -1474,45 +1517,13 @@ body,
   background-color: #1e293b;
 }
 
-.btn-large {
-  width: 100%;
-  padding: 12px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
 .btn-sm {
-  padding: 6px 12px;
+  padding: 4px 10px;
   font-size: 12px;
 }
 
 .btn-xs {
-  padding: 3px 8px;
+  padding: 2px 7px;
   font-size: 11px;
-}
-
-@media (max-height: 760px) {
-  .navbar {
-    padding: 9px 18px;
-  }
-
-  .main-content {
-    padding: 14px 18px 42px;
-  }
-
-  .canvas-wrapper {
-    min-height: 320px;
-  }
-
-  .crop-controls,
-  .action-card,
-  .param-card,
-  .monitor-card {
-    padding: 12px;
-  }
-
-  .control-panel {
-    gap: 12px;
-  }
 }
 </style>

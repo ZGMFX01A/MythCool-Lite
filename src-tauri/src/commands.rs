@@ -16,7 +16,7 @@ pub struct AppState {
     pub background_start_cancel: Arc<AtomicBool>,
 }
 
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct MediaInfo {
     pub width: u32,
     pub height: u32,
@@ -331,5 +331,38 @@ fn probe_resolution(ffmpeg_path: &std::path::Path, file_path: &str) -> Option<(u
             }
         }
     }
+
+    // 备用 fallback：若环境缺少 ffprobe.exe，通过 ffmpeg -i 在输出中解析视频/图片真实分辨率
+    if ffmpeg_path.exists() {
+        let mut cmd = Command::new(ffmpeg_path);
+        cmd.arg("-hide_banner").arg("-i").arg(file_path);
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000);
+        }
+
+        if let Ok(out) = cmd.output() {
+            let stderr_str = String::from_utf8_lossy(&out.stderr);
+            for line in stderr_str.lines() {
+                if line.contains("Video:") {
+                    for part in line.split(',') {
+                        let trimmed = part.trim();
+                        let dim_token = trimmed.split_whitespace().next().unwrap_or("");
+                        let dims: Vec<&str> = dim_token.split('x').collect();
+                        if dims.len() == 2 {
+                            if let (Ok(w), Ok(h)) = (dims[0].parse::<u32>(), dims[1].parse::<u32>()) {
+                                if w > 0 && h > 0 {
+                                    return Some((w, h));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     None
 }

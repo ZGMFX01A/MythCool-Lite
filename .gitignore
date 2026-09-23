@@ -25,3 +25,6 @@ dist-ssr
 
 # Build artifact
 /artifact
+
+# Local Cargo overrides (kept local, not pushed to CI)
+.cargo/

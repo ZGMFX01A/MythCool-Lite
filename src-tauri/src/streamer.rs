@@ -75,6 +75,7 @@ pub struct StreamManager {
     status: Arc<Mutex<StreamStatus>>,
     stop_signal: Arc<AtomicBool>,
     worker_handle: Option<thread::JoinHandle<()>>,
+    worker_done: Arc<AtomicBool>,
     cached_spec: Arc<Mutex<ScreenSpec>>,
     cached_presence: Arc<Mutex<DevicePresence>>,
     child_handle: Arc<Mutex<Option<Child>>>,
@@ -86,6 +87,7 @@ impl StreamManager {
             status: Arc::new(Mutex::new(StreamStatus::default())),
             stop_signal: Arc::new(AtomicBool::new(false)),
             worker_handle: None,
+            worker_done: Arc::new(AtomicBool::new(true)),
             cached_spec: Arc::new(Mutex::new(ScreenSpec::VK_DEFAULT)),
             cached_presence: Arc::new(Mutex::new(DevicePresence::default())),
             child_handle: Arc::new(Mutex::new(None)),
@@ -159,7 +161,15 @@ impl StreamManager {
             let _ = child.kill();
         }
         if let Some(handle) = self.worker_handle.take() {
-            let _ = handle.join();
+            // 使用带超时的非阻塞等待（1.5 秒），避免底层 USB 或驱动 I/O 假死导致主线程无条件挂起
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = handle.join();
+                let _ = tx.send(());
+            });
+            if rx.recv_timeout(Duration::from_millis(1500)).is_err() {
+                eprintln!("[WARN] 推流工作线程未能在 1.5 秒内响应停止退出，转入后台安全清理以保证 UI 响应");
+            }
         }
         self.child_handle.lock().unwrap().take();
         let mut st = self.status.lock().unwrap();
@@ -175,6 +185,12 @@ impl StreamManager {
         // 先停掉旧任务
         self.stop();
 
+        // 如果底层 USB I/O 仍未返回，旧 worker 可能还持有设备句柄。
+        // 此时拒绝并发启动，避免两个 worker 交叉操作同一块屏幕或互相杀掉 FFmpeg。
+        if !self.worker_done.load(Ordering::SeqCst) {
+            return Err("上一条推流任务仍在退出，请稍后再试".to_string());
+        }
+
         // 查找 ffmpeg 可执行文件路径
         let ffmpeg_path = resolve_ffmpeg(config.custom_ffmpeg.as_deref())?;
 
@@ -189,7 +205,10 @@ impl StreamManager {
             .map_err(|e| format!("打开屏幕设备失败: {}", e))?;
 
         // 显式 arm 设备（MS 关闭屏闸/视频等待推流，VK 初始化双轮唤醒与几何校验）
-        device.arm().map_err(|e| format!("初始化/arm 屏幕失败: {}", e))?;
+        if let Err(e) = device.arm() {
+            device.abort_arm();
+            return Err(format!("初始化/arm 屏幕失败: {}", e));
+        }
 
         let spec = *device.spec();
 
@@ -208,6 +227,8 @@ impl StreamManager {
 
         self.stop_signal.store(false, Ordering::SeqCst);
         let stop_flag = Arc::clone(&self.stop_signal);
+        let worker_done = Arc::new(AtomicBool::new(false));
+        self.worker_done = Arc::clone(&worker_done);
         let status_arc = Arc::clone(&self.status);
         let cached_spec_arc = Arc::clone(&self.cached_spec);
         let cached_presence_arc = Arc::clone(&self.cached_presence);
@@ -246,6 +267,7 @@ impl StreamManager {
                 stop_flag,
                 status_arc,
                 child_handle,
+                worker_done,
             );
         });
 
@@ -463,6 +485,14 @@ fn kill_ffmpeg_child(child_handle: &Arc<Mutex<Option<Child>>>) {
     slot.take();
 }
 
+struct WorkerCompletion(Arc<AtomicBool>);
+
+impl Drop for WorkerCompletion {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
 /// 实际执行推流的工作线程
 fn run_stream_worker(
     mut device: Box<dyn ScreenDevice>,
@@ -473,7 +503,10 @@ fn run_stream_worker(
     stop_flag: Arc<AtomicBool>,
     status_arc: Arc<Mutex<StreamStatus>>,
     child_handle: Arc<Mutex<Option<Child>>>,
+    worker_done: Arc<AtomicBool>,
 ) {
+    let _completion = WorkerCompletion(worker_done);
+
     if stop_flag.load(Ordering::SeqCst) {
         device.close();
         return;
@@ -492,6 +525,7 @@ fn run_stream_worker(
     {
         Ok(stdout) => stdout,
         Err(e) => {
+            device.abort_arm();
             device.close();
             if stop_flag.load(Ordering::SeqCst) {
                 return;
@@ -543,6 +577,7 @@ fn run_stream_worker(
                 st.is_running = false;
                 st.error_message = Some("未解码到有效画面（文件损坏或格式不支持）".to_string());
                 kill_ffmpeg_child(&child_handle);
+                device.abort_arm();
                 device.close();
                 return;
             }
@@ -567,6 +602,7 @@ fn run_stream_worker(
                         let mut st = status_arc.lock().unwrap();
                         st.is_running = false;
                         st.error_message = Some(format!("循环重启 ffmpeg 失败: {}", e));
+                        device.abort_arm();
                         device.close();
                         return;
                     }
@@ -586,6 +622,9 @@ fn run_stream_worker(
                 st.last_error = Some(format!("推流中断: {}", e));
                 st.error_message = Some(format!("推流中断: {}", e));
                 kill_ffmpeg_child(&child_handle);
+                if pushed_count == 0 {
+                    device.abort_arm();
+                }
                 device.close();
                 return;
             }
@@ -619,4 +658,19 @@ fn run_stream_worker(
     let mut st = status_arc.lock().unwrap();
     st.is_running = false;
     st.current_fps = 0.0;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worker_completion_marks_exit_after_scope() {
+        let done = Arc::new(AtomicBool::new(false));
+        {
+            let _completion = WorkerCompletion(Arc::clone(&done));
+            assert!(!done.load(Ordering::SeqCst));
+        }
+        assert!(done.load(Ordering::SeqCst));
+    }
 }
