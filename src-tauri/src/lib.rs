@@ -1,10 +1,10 @@
 //! Myth.Cool Lite Tauri 2 应用程序主入口
 
-mod autostart;
-mod commands;
-mod device;
-mod shutdown;
-mod streamer;
+pub mod autostart;
+pub mod commands;
+pub mod device;
+pub mod shutdown;
+pub mod streamer;
 
 use commands::AppState;
 use std::sync::{atomic::Ordering, Arc, Mutex};
@@ -75,10 +75,10 @@ fn start_background_stream(app: &tauri::AppHandle) {
             }
 
             let mut mgr = manager.lock().unwrap();
-            let (width, height, online) = mgr.get_device_specs();
-            if online {
-                config.target_width = Some(width);
-                config.target_height = Some(height);
+            let (spec, presence) = mgr.get_device_specs();
+            if presence.ms_online || presence.vk_online {
+                config.target_width = Some(spec.glass_w);
+                config.target_height = Some(spec.glass_h);
                 match mgr.start(config.clone()) {
                     Ok(()) => return,
                     Err(e) => {

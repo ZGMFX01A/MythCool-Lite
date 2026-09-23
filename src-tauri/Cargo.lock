@@ -2116,7 +2116,6 @@ dependencies = [
 [[package]]
 name = "mythcool-device-core"
 version = "0.1.0"
-source = "git+https://github.com/ZGMFX01A/mythcool-device-core.git?rev=bd59439#bd59439ea74ec04d6af7ec98fba11e55c90bbdde"
 
 [[package]]
 name = "ndk"

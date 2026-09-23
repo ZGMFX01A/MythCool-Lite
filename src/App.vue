@@ -9,16 +9,61 @@ import { PUBLIC_REPOSITORY_URL } from "./repository";
 
 // 硬件与推流状态
 const deviceOnline = ref(false);
+const activeKind = ref<string>("");
+const msOnline = ref(false);
+const vkOnline = ref(false);
 const deviceWidth = ref(640);
 const deviceHeight = ref(480);
 const deviceAspectStr = ref("4:3");
+const deviceMaxFps = ref(60);
 
 const isStreaming = ref(false);
 const currentFps = ref(0);
+const effectiveFps = ref(16);
 const errorMessage = ref("");
 const isAutostart = ref(false);
 const publicRepositoryUrl = PUBLIC_REPOSITORY_URL;
 const selectedMediaStorageKey = "mythcool-lite.selected-media.v1";
+
+const isDeviceReady = ref(false);
+const isDeviceBusy = ref(false);
+
+const deviceStatusText = computed(() => {
+  if (isStreaming.value) {
+    if (msOnline.value && vkOnline.value) {
+      const activeLabel = activeKind.value.includes("Ms") ? "MS机箱屏" : "VK水冷屏";
+      return `双屏推流中 (${activeLabel}, ${deviceWidth.value}×${deviceHeight.value})`;
+    }
+    if (msOnline.value) {
+      return `MS 机箱屏推流中 (${deviceWidth.value}×${deviceHeight.value})`;
+    }
+    if (vkOnline.value) {
+      return `VK 水冷屏推流中 (${deviceWidth.value}×${deviceHeight.value})`;
+    }
+    return `推流中 (${deviceWidth.value}×${deviceHeight.value})`;
+  }
+
+  if (isDeviceBusy.value) {
+    return "副屏已被官方应用占用 (请退出原版 Myth.Cool)";
+  }
+
+  if (msOnline.value && vkOnline.value) {
+    const activeLabel = activeKind.value.includes("Ms") ? "MS机箱屏" : "VK水冷屏";
+    const readyStr = isDeviceReady.value ? "已就绪" : "已检测到";
+    return `双屏在线 (${readyStr}, 优先: ${activeLabel}, ${deviceWidth.value}×${deviceHeight.value})`;
+  }
+  if (msOnline.value) {
+    const readyStr = isDeviceReady.value ? "已就绪" : "已检测到";
+    return `MS 机箱屏${readyStr} (${deviceWidth.value}×${deviceHeight.value})`;
+  }
+  if (vkOnline.value) {
+    const readyStr = isDeviceReady.value ? "已就绪" : "已检测到";
+    return `VK 水冷屏${readyStr} (${deviceWidth.value}×${deviceHeight.value})`;
+  }
+  return "副屏未连接";
+});
+
+const colorChannelText = computed(() => (activeKind.value.includes("Ms") ? "BGR888" : "BGR565"));
 
 // 媒体与裁切参数
 const selectedFile = ref<string>("");
@@ -68,21 +113,47 @@ async function refreshStatus() {
     isStreaming.value = status.is_running;
     deviceOnline.value = status.device_online;
     currentFps.value = status.current_fps;
-    if (status.error_message) {
+    effectiveFps.value = status.effective_fps || status.requested_fps || fps.value;
+    if (status.last_error) {
+      errorMessage.value = status.last_error;
+    } else if (status.error_message) {
       errorMessage.value = status.error_message;
     }
 
     // 获取并更新设备实际硬件分辨率和比例
     const specs: any = await invoke("get_device_specs");
-    if (specs && specs.width && specs.height) {
+    if (specs) {
+      msOnline.value = specs.ms_online === true;
+      vkOnline.value = specs.vk_online === true;
       deviceOnline.value = specs.online === true;
-      const changed = deviceWidth.value !== specs.width || deviceHeight.value !== specs.height;
-      deviceWidth.value = specs.width;
-      deviceHeight.value = specs.height;
-      deviceAspectStr.value = specs.aspect_ratio_str || `${specs.width}:${specs.height}`;
+      activeKind.value = specs.active_kind || "";
+      deviceMaxFps.value = specs.max_fps || 60;
 
-      if (changed && lockAspect.value && isMediaLoaded.value) {
-        resetCrop();
+      if (specs.width && specs.height) {
+        const changed = deviceWidth.value !== specs.width || deviceHeight.value !== specs.height;
+        deviceWidth.value = specs.width;
+        deviceHeight.value = specs.height;
+        deviceAspectStr.value = specs.aspect_ratio_str || `${specs.width}:${specs.height}`;
+
+        if (changed && lockAspect.value && isMediaLoaded.value) {
+          resetCrop();
+        }
+      }
+
+      // 未推流且检测到硬件在线时，执行 readiness 校验以识别占用
+      if (!isStreaming.value && (specs.ms_online || specs.vk_online)) {
+        try {
+          const chk: any = await invoke("check_device");
+          if (chk) {
+            isDeviceReady.value = chk.ready === true;
+            isDeviceBusy.value = chk.error_code === -5;
+          }
+        } catch (_) {
+          // 保持检测状态
+        }
+      } else if (isStreaming.value) {
+        isDeviceReady.value = true;
+        isDeviceBusy.value = false;
       }
     }
 
@@ -548,13 +619,13 @@ onUnmounted(() => {
         <!-- 设备状态 -->
         <div :class="['badge', deviceOnline ? 'badge-green' : 'badge-red']">
           <span class="dot"></span>
-          {{ deviceOnline ? `副屏已就绪 (${deviceWidth}×${deviceHeight})` : "副屏未连接 / 官方占用" }}
+          {{ deviceStatusText }}
         </div>
 
         <!-- 推流状态 -->
         <div :class="['badge', isStreaming ? 'badge-cyan' : 'badge-gray']">
           <span class="dot"></span>
-          {{ isStreaming ? `推流中: ${currentFps.toFixed(1)} FPS` : "待机中" }}
+          {{ isStreaming ? `推流中: ${currentFps.toFixed(1)} / ${effectiveFps} FPS` : "待机中" }}
         </div>
 
         <!-- 开机自启开关 -->
@@ -712,7 +783,7 @@ onUnmounted(() => {
             </div>
             <div class="stat-box">
               <span class="stat-label">色彩通道</span>
-              <span class="stat-val">BGR565</span>
+              <span class="stat-val">{{ colorChannelText }}</span>
             </div>
             <div class="stat-box">
               <span class="stat-label">推流状态</span>

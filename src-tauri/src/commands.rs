@@ -28,27 +28,88 @@ pub struct DeviceSpecs {
     pub online: bool,
     pub width: u32,
     pub height: u32,
+    pub stream_width: u32,
+    pub stream_height: u32,
     pub aspect_ratio_str: String,
+    pub active_kind: Option<String>,
+    pub ms_online: bool,
+    pub vk_online: bool,
+    pub max_fps: u32,
+}
+
+#[derive(serde::Serialize)]
+pub struct CheckDeviceResult {
+    pub ready: bool,
+    pub active_kind: Option<String>,
+    pub ms_online: bool,
+    pub vk_online: bool,
+    pub error_code: Option<i32>,
+    pub error_message: Option<String>,
+}
+
+pub fn check_device_with_opener<F, D>(opener: F) -> CheckDeviceResult
+where
+    F: FnOnce() -> Result<(D, device::DevicePresence), device::ProbeError>,
+    D: device::ScreenDevice,
+{
+    match opener() {
+        Ok((mut dev, presence)) => {
+            let active_kind = format!("{:?}", dev.spec().kind);
+            // 契约：仅完成无副作用的打开与探测，不调用 arm，随即立即释放
+            dev.close();
+            CheckDeviceResult {
+                ready: true,
+                active_kind: Some(active_kind),
+                ms_online: presence.ms_online,
+                vk_online: presence.vk_online,
+                error_code: None,
+                error_message: None,
+            }
+        }
+        Err(e) => {
+            let (code, msg) = match &e {
+                device::ProbeError::AccessDenied(c) => (Some(*c), e.to_string()),
+                device::ProbeError::DriverMissing(_) => (Some(-2), e.to_string()),
+                device::ProbeError::NotFound => (Some(-1), e.to_string()),
+                device::ProbeError::Io(_) => (Some(-3), e.to_string()),
+            };
+            let presence = device::probe_all(None).map(|p| p.presence).unwrap_or_default();
+            CheckDeviceResult {
+                ready: false,
+                active_kind: None,
+                ms_online: presence.ms_online,
+                vk_online: presence.vk_online,
+                error_code: code,
+                error_message: Some(msg),
+            }
+        }
+    }
 }
 
 #[tauri::command]
-pub fn check_device() -> Result<bool, String> {
-    Ok(device::UsbDevice::open().is_ok())
+pub fn check_device() -> CheckDeviceResult {
+    check_device_with_opener(|| device::open_active_device(Arc::new(device::Noop)))
 }
 
 #[tauri::command]
 pub fn get_device_specs(state: State<'_, AppState>) -> DeviceSpecs {
     let mgr = state.stream_manager.lock().unwrap();
-    let (w, h, online) = mgr.get_device_specs();
+    let (spec, presence) = mgr.get_device_specs();
 
-    let gcd = num_gcd(w, h);
-    let aspect_ratio_str = format!("{}:{}", w / gcd, h / gcd);
+    let gcd = num_gcd(spec.glass_w, spec.glass_h);
+    let aspect_ratio_str = format!("{}:{}", spec.glass_w / gcd, spec.glass_h / gcd);
 
     DeviceSpecs {
-        online,
-        width: w,
-        height: h,
+        online: presence.ms_online || presence.vk_online,
+        width: spec.glass_w,
+        height: spec.glass_h,
+        stream_width: spec.stream_w,
+        stream_height: spec.stream_h,
         aspect_ratio_str,
+        active_kind: Some(format!("{:?}", spec.kind)),
+        ms_online: presence.ms_online,
+        vk_online: presence.vk_online,
+        max_fps: spec.max_fps,
     }
 }
 
