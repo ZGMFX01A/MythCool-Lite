@@ -54,7 +54,7 @@ where
 {
     match opener() {
         Ok((mut dev, presence)) => {
-            let active_kind = format!("{:?}", dev.spec().kind);
+            let active_kind = dev.spec().kind.display_name().to_string();
             // 契约：仅完成无副作用的打开与探测，不调用 arm，随即立即释放
             dev.close();
             CheckDeviceResult {
@@ -106,7 +106,7 @@ pub fn get_device_specs(state: State<'_, AppState>) -> DeviceSpecs {
         stream_width: spec.stream_w,
         stream_height: spec.stream_h,
         aspect_ratio_str,
-        active_kind: Some(format!("{:?}", spec.kind)),
+        active_kind: Some(spec.kind.display_name().to_string()),
         ms_online: presence.ms_online,
         vk_online: presence.vk_online,
         max_fps: spec.max_fps,

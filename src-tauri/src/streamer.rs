@@ -46,6 +46,8 @@ pub struct StreamStatus {
     pub effective_fps: u32,
     pub error_message: Option<String>,
     pub last_error: Option<String>,
+    pub timing_verified: bool,
+    pub timing_warning: Option<String>,
 }
 
 impl Default for StreamStatus {
@@ -67,6 +69,8 @@ impl Default for StreamStatus {
             effective_fps: 16,
             error_message: None,
             last_error: None,
+            timing_verified: true,
+            timing_warning: None,
         }
     }
 }
@@ -129,7 +133,7 @@ impl StreamManager {
 
                 let mut st = self.status.lock().unwrap();
                 st.device_online = true;
-                st.active_kind = Some(format!("{:?}", spec.kind));
+                st.active_kind = Some(spec.kind.display_name().to_string());
                 st.ms_online = presence.ms_online;
                 st.vk_online = presence.vk_online;
                 st.target_width = spec.glass_w;
@@ -237,11 +241,21 @@ impl StreamManager {
         *cached_spec_arc.lock().unwrap() = spec;
         *cached_presence_arc.lock().unwrap() = presence;
 
+        let timing_verified = device.is_timing_verified();
+        let timing_warning = if !timing_verified {
+            Some(format!(
+                "当前分辨率 ({}x{}) 硬件时序未经官方反汇编验证，若画面频闪属已知情况",
+                spec.stream_w, spec.stream_h
+            ))
+        } else {
+            None
+        };
+
         {
             let mut st = status_arc.lock().unwrap();
             st.is_running = true;
             st.device_online = true;
-            st.active_kind = Some(format!("{:?}", spec.kind));
+            st.active_kind = Some(spec.kind.display_name().to_string());
             st.ms_online = presence.ms_online;
             st.vk_online = presence.vk_online;
             st.current_file = config.file_path.clone();
@@ -255,6 +269,8 @@ impl StreamManager {
             st.stream_height = spec.stream_h;
             st.error_message = None;
             st.last_error = None;
+            st.timing_verified = timing_verified;
+            st.timing_warning = timing_warning;
         }
 
         let handle = thread::spawn(move || {

@@ -131,6 +131,8 @@ fn test_check_device_does_not_call_arm() {
         vk_online: false,
     };
 
+    let expected_kind_name = mock.spec.kind.display_name().to_string();
+
     // 真实将 MockDevice 注入 commands::check_device_with_opener 生产执行路径
     let result = desktop_lib::commands::check_device_with_opener(|| {
         mock.open().unwrap();
@@ -138,7 +140,7 @@ fn test_check_device_does_not_call_arm() {
     });
 
     assert!(result.ready);
-    assert_eq!(result.active_kind, Some("Ms360x960".to_string()));
+    assert_eq!(result.active_kind, Some(expected_kind_name));
     assert_eq!(open_count.load(Ordering::SeqCst), 1, "必须恰好 open 一次");
     assert_eq!(
         arm_count.load(Ordering::SeqCst),

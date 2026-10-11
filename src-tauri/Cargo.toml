@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "0.1.2"
+version = "0.3.0"
 description = "A Tauri App"
 authors = ["ZGMFX01A"]
 edition = "2021"
@@ -21,7 +21,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
-mythcool-device-core = { git = "https://github.com/ZGMFX01A/mythcool-device-core.git", rev = "ab7643d" }
+# 私有核心以独立仓库维护，其默认分支为 main。跟随分支而非 pin rev：
+# core 侧改动推送后，在本目录执行 `cargo update -p mythcool-device-core` 即可生效。
+mythcool-device-core = { git = "https://github.com/ZGMFX01A/mythcool-device-core.git", branch = "main" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 winreg = "0.52"
